@@ -1,0 +1,331 @@
+library(rvest)
+library(httr)
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(readxl)
+library(usmap)
+library(shinyBS)
+
+# ---------------------------------------- #
+
+#' Webscrape data
+#' 
+#' @param url A AAA url
+#' @return A data.frame of daily gas prices
+scrape.daily = function(url){
+  
+  set_config(config(ssl_verifypeer = FALSE))
+  options(RCurlOptions = list(ssl_verifypeer = FALSE))
+  options(rsconnect.check.certificate = FALSE)
+  h = GET(url) %>% read_html()
+  tab <- h %>% html_nodes("body")
+  tab <- tab[[1]] %>% html_table
+  states.df = as.data.frame(tab)
+  states.df = states.df[-8,] # delete D.C.
+  rownames(states.df) = 1:nrow(states.df)
+  prices.df = states.df[,2:5]
+  return(prices.df)
+  
+}
+
+# ---------------------------------------- #
+
+#' Save daily gas prices to working directory
+#' 
+#' @param df A data.frame of gas prices
+#' @param filename A filename
+save.daily = function(df, filename){
+  
+  if(!file.exists(filename)){
+    write.table(x = df, file = filename, col.names = F, row.names = F)
+  }
+  
+}
+
+# ---------------------------------------- #
+
+#' Read Excel file of gas prices into R
+#'
+#' @return A data.frame of gas prices
+read.prices = function(){
+  
+  all.prices = read_excel("prices.xlsx")
+  all.prices = as.data.frame(all.prices)
+  return(all.prices)
+  
+}
+
+# ---------------------------------------- #
+
+#' Convert data.frame of gas prices into an array
+#'
+#' @param df A data.frame of gas prices
+#' @return The array of gas prices
+get.array = function(df){
+  
+  prices.array = array(NA, dim = c(days,c,n))
+  dimnames(prices.array)[[1]] = 1:days
+  dimnames(prices.array)[[2]] = c("Regular","Midgrade","Premium","Diesel")
+  dimnames(prices.array)[[3]] = US.states
+  
+  for(i in 1:n){
+    k = i
+    for(rows in 1:days){
+      for(j in 1:c){
+        prices.array[rows,j,i] = df[k,j]
+        if(j == c){
+          k = k + n
+        }
+      }
+    }
+  }
+  
+  return(prices.array)
+  
+}
+
+# ---------------------------------------- #
+
+#' Calculate the average gas price for every state
+#'
+#' @param arr An array of gas prices
+#' @return The average gas price for every state
+get.avg = function(arr){
+  
+  avg = matrix(NA, nrow = n, ncol = c)
+  colnames(avg) = c("Regular", "Midgrade", "Premium", "Diesel")
+  rownames(avg) = US.states
+  
+  for(i in 1:n){
+     avg[i,] = prices.array[days,,i]
+  }
+  
+  avg = as.data.frame(avg)
+  avg = cbind(avg, US.states)
+  colnames(avg) = c("Regular", "Midgrade", "Premium", "Diesel", "state")
+  
+  return(avg)
+  
+}
+
+# ---------------------------------------- #
+
+#' Calculate today's national average gas price
+#'
+#' @param df A data.frame of gas prices
+#' @return Today's average
+today.avg = function(df){
+  
+  Today = matrix(NA, nrow = 1, ncol = c)
+  for(i in 1:c){
+    Today[,i] = mean(df[,i])
+  }
+  colnames(Today) = c("Regular", "Midgrade","Premium","Diesel")
+  
+  return(Today)
+  
+}
+
+# ---------------------------------------- #
+
+url = "https://gasprices.aaa.com/state-gas-price-averages/"
+prices.df = scrape.daily(url = url)
+
+filename = "6.15.22.txt"
+save.daily(df = prices.df, filename = filename)
+
+US.states = c("Alaska","Alabama","Arkansas","Arizona","California","Colorado","Connecticut",
+              "Delaware","Florida","Georgia","Hawaii","Iowa","Idaho","Illinois","Indiana","Kansas",        
+              "Kentucky","Louisiana","Massachusetts","Maryland","Maine","Michigan","Minnesota","Missouri",      
+              "Mississippi","Montana","North Carolina","North Dakota","Nebraska","New Hampshire",
+              "New Jersey","New Mexico","Nevada","New York","Ohio","Oklahoma","Oregon","Pennsylvania",
+              "Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah",      
+              "Virginia","Vermont","Washington","Wisconsin","West Virginia","Wyoming")
+
+n = length(US.states)
+
+
+all.prices = read.prices()
+days = dim(all.prices)[1] / n # number of days data was collected
+c = dim(all.prices)[2]
+prices.array = get.array(all.prices)
+avg = get.avg(prices.array)
+Today = today.avg(avg)
+
+
+#' User-interface of the Shiny App
+ui = fluidPage(
+  
+  tags$head(
+    
+    tags$style(
+      
+      HTML(
+        
+      "@import url('https://fonts.googleapis.com/css2?family=Yusei+Magic&display=swap');
+      
+      body{
+      
+        background-color: navajowhite;
+        color: white;
+        
+      }
+      
+      h1{
+      
+        text-align: center;
+        border-style: solid;
+        border-color: black;
+        background-color: white;
+        margin-right: 15%;
+        margin-left: 15%;
+        color: black;
+        
+      }
+      
+      h5{
+      
+        border-style: solid;
+        border-radius: 25px;
+        border-color: darkgreen;
+        background-color: white;
+        padding: 5px;
+        
+      }
+      
+      .shiny-input-container{
+      
+        color: black;
+        
+      }"
+      
+      ))
+    
+    ),
+  
+  h1("Gas Prices in the United States", align = "center"),
+  
+  br(),
+  
+  plotOutput(outputId = "plotSingle", click = "plot_click"),
+  verbatimTextOutput("info1"),
+  
+  fluidRow(
+    
+    column(6, align="center",selectInput(inputId = "gas",
+                                        label = h5("Gas Type"),
+                                        choices = c("Regular", "Midgrade", "Premium", "Diesel"))),
+    column(6, align="center",selectInput(inputId = "state",
+                                        label = h5("State"),
+                                        choices = US.states))
+    ),
+  
+  fluidRow(
+    
+    column(6, align="center",actionButton(inputId = "allGasbtn", 
+                                         label = "View All Grades")),
+    column(6, align="center",actionButton(inputId = "USbtn", 
+                                         label = "View US Map"),
+           bsModal(id = "US", 
+                   title = "State Prices", 
+                   trigger = "USbtn", 
+                   size = "large", 
+                   plotOutput("plotUS")),
+           bsModal(id = "comp",
+                   title = "Comparing all Gas Types",
+                   trigger = "allGasbtn",
+                   size = "large",
+                   plotOutput("plotComp", 
+                              click = "plot_click"),
+                   verbatimTextOutput("info2")))
+    )
+
+)
+
+
+#' Server-side of the Shiny App
+#' 
+#' @param input An input
+#' @param output An output
+server = function(input, output){
+  
+  output$plotSingle = renderPlot({
+    
+    ggplot(data.frame(day = as.Date("2022-03-15") + 0:(days-1),
+                      value = prices.array[,input$gas,input$state]), aes(x=day, y=value)) +
+      geom_line(lwd = 1) +
+      scale_x_date(date_breaks = "7 days", date_labels = "%m/%d") +
+      xlab("Date") +
+      ylab("Dollars per Gallon") +
+      ggtitle(paste(input$gas,"gas prices in",input$state,"starting March 15, 2022")) +
+      theme(plot.title = element_text(size = 20, family = "Times", face = "bold", hjust = 0.5),
+            panel.background = element_rect(fill = 'seagreen1'),
+            panel.grid.minor.x = element_blank(),
+            text = element_text(size=20, family = "Times"),
+            axis.title.y = element_text(margin=margin(r=20), family = "Times"),
+            axis.title.x = element_text(margin=margin(t=10)),
+            axis.text = element_text(size = 20, family = "Times"))
+    
+  })
+  
+  output$info1 <- renderText({
+    
+    paste0("Click the graph for specific price: ", round(as.numeric(input$plot_click$y),3))
+    
+  })
+  
+  output$plotUS = renderPlot({
+      
+      plot_usmap(data = avg, labels = T, values = input$gas, color = "black") + 
+      scale_fill_continuous(low = "lightgreen",
+                              high = "red",
+                              name = "Dollars per Gallon",
+                              label = scales::comma) + 
+      labs(title = paste("National Average Price for",
+                           input$gas,
+                           ":",
+                           round(Today[,input$gas],3)),
+           subtitle = "Date: May 1, 2022") +
+      theme(legend.position = "right", text = element_text(size = 13, family = "Times"))
+
+  })
+  
+  output$plotComp = renderPlot({
+    
+    ggplot(data.frame(day = as.Date("2022-03-15") + 0:(days-1),
+                      value = prices.array[,input$gas,input$state]), aes(x=day, y=value)) +
+      geom_line(aes(y = prices.array[,"Regular",input$state], col = "red"),lwd = 1) +
+      geom_line(aes(y = prices.array[,"Midgrade",input$state], col ="green"),lwd = 1) +
+      geom_line(aes(y = prices.array[,"Premium",input$state], col ="blue"),lwd = 1) +
+      geom_line(aes(y = prices.array[,"Diesel",input$state], col ="black"),lwd = 1) +
+      scale_x_date(date_breaks = "7 days", date_labels = "%m/%d") +
+      scale_color_manual(labels = c("Diesel", "Premium","Midgrade","Regular"),
+                         values = c("red","green","blue","black")) +
+      xlab("Date") +
+      ylab("Dollars per Gallon") +
+      ggtitle(paste("Gas prices in",input$state,"starting March 15, 2022")) +
+      theme(plot.title = element_text(hjust = 0.5, family = "Times"),  
+            panel.background = element_rect(fill = 'papayawhip'),
+            panel.grid.minor.x = element_blank(),
+            text = element_text(size=20, family = "Times"),
+            axis.title.y = element_text(margin=margin(r=20), family = "Times"),
+            axis.title.x = element_text(margin=margin(t=10)),
+            axis.text = element_text(size = 20, family = "Times"),
+            legend.key = element_rect(fill = NA),
+            legend.title = element_blank())
+    
+  })
+  
+   output$info2 <- renderText({
+     
+     paste0("Click the graph for specific price: ", round(as.numeric(input$plot_click$y),3))
+     
+   })
+  
+}
+
+
+
+# Launch App
+shinyApp(ui, server)
