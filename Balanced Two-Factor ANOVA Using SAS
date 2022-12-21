@@ -1,0 +1,78 @@
+data spruceMoths;
+input mothCount lure$ location$ replicate;
+datalines;
+28 Scent	 Top	 1
+19 Scent	 Top	 2
+32 Scent	 Top	 3
+15 Scent	 Top	 4
+13 Scent	 Top	 5
+39 Scent	 Middle  1
+12 Scent	 Middle  2
+42 Scent	 Middle  3
+25 Scent	 Middle  4
+21 Scent	 Middle  5
+44 Scent	 Lower	 1
+21 Scent	 Lower	 2
+38 Scent	 Lower	 3
+32 Scent	 Lower	 4
+29 Scent	 Lower	 5
+35 Sugar	 Top	 1
+22 Sugar	 Top	 2
+33 Sugar	 Top	 3
+21 Sugar	 Top	 4
+17 Sugar	 Top	 5
+36 Sugar	 Middle  1
+38 Sugar	 Middle  2
+44 Sugar	 Middle  3
+27 Sugar	 Middle  4
+22 Sugar	 Middle  5
+42 Sugar	 Lower	 1
+17 Sugar	 Lower	 2
+31 Sugar	 Lower	 3
+29 Sugar	 Lower	 4
+37 Sugar	 Lower	 5
+32 Chemical  Top	 1
+29 Chemical  Top	 2
+16 Chemical  Top	 3
+18 Chemical  Top	 4
+20 Chemical  Top	 5
+37 Chemical  Middle  1
+40 Chemical  Middle  2
+18 Chemical  Middle  3
+28 Chemical  Middle  4
+36 Chemical  Middle  5
+35 Chemical  Lower	 1
+39 Chemical  Lower	 2
+41 Chemical  Lower	 3
+31 Chemical  Lower	 4
+34 Chemical  Lower	 5
+;
+
+* Print the data;
+proc print data=spruceMoths;
+run;
+
+* Fit the Generalized Linear Model with interaction;
+proc glm data=spruceMoths plots=all;
+class lure location;
+model mothCount = lure location lure*location / solution;
+output out=diag1 r=resid1;
+run;
+ 
+* Test for normality without transformation;
+proc univariate data = diag1 normal;
+var resid1;
+run;
+
+* Fit the Generalized Linear Model without interaction;
+proc glm data=spruceMoths plots=all;
+class lure location;
+model mothCount = lure location / solution;
+run;
+
+* Tukey procedure *;
+proc glm data=spruceMoths;
+class lure location;
+model mothCount = lure location;
+lsmeans location / pdiff adjust=tukey alpha=0.05 cl lines; 
+run;
