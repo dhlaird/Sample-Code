@@ -1,0 +1,92 @@
+proc import datafile="/home/u49433134/newColon.txt"
+        out=newColon
+        dbms=tab
+        replace;
+run;
+
+* KM with logrank test;
+proc lifetest data=newColon method=km plots=survival outsurv=a;
+time time*status(0);
+strata rx/test=logrank;
+run;
+
+* Bonferroni adjustment;
+proc lifetest data=newColon method=km plots=survival outsurv=a;
+time time*status(0);
+strata rx/test=logrank adjust=bon;
+run;
+
+* PH Assumption with all variables;
+proc phreg data=newColon;
+class rx sex extent perfor differ node4 surg adhere;
+model time*status(0) = sex age rx perfor adhere nodes extent surg differ node4;
+assess ph/resample=1000;
+run;
+
+* PH Assumption with strata;
+proc phreg data=newColon;
+class rx sex extent perfor differ node4 surg adhere;
+model time*status(0) = sex age rx perfor adhere nodes extent surg node4;
+strata differ;
+assess var=(age) ph/resample=1000;
+run;
+
+* Stepwise;
+proc phreg data=newColon;
+class rx sex extent perfor differ node4 surg adhere;
+model time*status(0) = sex age rx perfor adhere extent nodes surg / selection=stepwise;
+strata differ node4;
+run;
+
+* Include interactions;
+proc phreg data=newColon;
+class rx extent differ node4 surg;
+model time*status(0) = rx extent nodes surg rx*extent rx*nodes rx*surg / selection=stepwise;
+strata differ node4;
+run;
+
+* Final PH Assumption check;
+proc phreg data=newColon;
+class rx extent differ node4 surg;
+model time*status(0) = rx extent nodes surg;
+strata differ node4;
+assess ph/resample=1000;
+run;
+
+* Interaction Assumption;
+data newColon;
+set newColon;
+if differ = 1 and node4 = 0 then z=1;
+else if differ = 1 and node4 = 1 then z = 2;
+else if differ = 2 and node4 = 0 then z = 3;
+else if differ = 2 and node4 = 1 then z = 4;
+else if differ = 3 and node4 = 0 then z = 5;
+else if differ = 3 and node4 = 1 then z = 6;
+run;
+
+* LR test for interaction assumption;
+proc phreg data=newColon;
+class rx extent differ node4 surg;
+model time*status(0) = rx extent nodes surg;
+strata differ node4;
+run;
+
+proc phreg data=newColon;
+class rx z(ref="6") extent differ node4 surg;
+model time*status(0) = rx extent nodes surg rx*z extent*z nodes*z surg*z;
+strata z;
+run;
+
+* Results based on final model;
+* Obs = observation, extent = 1 is submucosa, differ = 3 is poor, surg = 0 is short;
+proc phreg data=newColon;
+class rx(ref="Obs") extent(ref="1") differ(ref="3") node4 surg(ref="0");
+model time*status(0) = rx extent nodes surg;
+strata differ node4;
+hazardratio rx;
+hazardratio extent;
+hazardratio nodes;
+hazardratio nodes / units=10;
+hazardratio nodes / units=20;
+hazardratio surg;
+run;
